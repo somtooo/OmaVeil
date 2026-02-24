@@ -246,14 +246,7 @@ fn show_restore_menu() -> io::Result<()> {
 
     let input = windows
         .iter()
-        .map(|w| {
-            format!(
-                "{} - {} [{}]",
-                w.class,
-                w.original_title,
-                &w.address.chars().rev().take(4).collect::<String>()
-            )
-        })
+        .map(|w| format!("{} - {}", w.class, w.original_title))
         .collect::<Vec<_>>()
         .join("\n");
 
