@@ -1,139 +1,126 @@
-![niflveil-logo-complete](https://github.com/user-attachments/assets/74032954-8770-460d-87f0-c2057328197a)
-# IMPORTANT: The eww interface is optional, I haven't improved upon the UI (might be buggy) as I don't use it myself. It is far more ergonomic to use the keybindings.
+# OmaVeil
 
-# NiflVeil
-From the creator of [StygianSift](https://github.com/Mauitron/StygianSift) comes NiflVeil - a minimalistic window minimizer for Hyprland, named after Niflheim's mystical veil of mists where things vanish from sight but remain within reach. If you enjoy NiflVeil or want to see more tools from my workshop in Niflheim, consider buying me some [mead](https://buymeacoffee.com/charon0) 🍺
+An [Omarchy](https://omarchy.org)-native window minimizer for Hyprland. Sends windows to a hidden special workspace and retrieves them on demand — mimicking the minimize behaviour you'd expect from a traditional desktop environment.
 
-## Lost in the Mists? Let this paragon of sanity help you out!
+Uses [Walker](https://walkerlauncher.com) as the restore picker, the same launcher already built into Omarchy. No EWW, no extra dependencies.
 
-Greetings, mortals! I am the keeper of the mists, formerly known as that boat guy from the warmer realms. After a... slight navigational error involving the world tree and some, exceptionally terrible, advice from an, exceptionally rude, squirrel, I've found myself in these frigid Norse lands. But fear not! I've turned my talent for ferrying lost souls into something more useful - helping you manage your lost windows!
+> Forked from [NiflVeil](https://github.com/somtooo/NiflVeil) by [Maui The Magnificent (Charon)](mailto:Maui_The_Magnificent@proton.me).  
+> Thanks to Charon for the original concept and clean zero-dependency Rust implementation.
 
-## 🌫️ Features
+---
 
-### Core Features
+## How it works
 
-- Window Veiling: Send your windows to Niflheim's mists, retrieve them when needed
-- EWW Integration: To let you peer across the veil with style
-- Waybar Support: Keep track of your hidden treasures
-- Window State Persistence: Like Yggdrasil's roots, always remembering
-- Window Previews: Capture the essence of your windows before they fade into the mists *(Currently under development)*
+- **Minimize** — moves the focused window to `special:minimum` (a hidden Hyprland special workspace) and saves its metadata to `/tmp/minimize-state/windows.json`.
+- **Restore** — opens a Walker dmenu picker listing all minimized windows. Select one to bring it back to the current workspace and focus it. This is the same pattern as the clipboard picker already in Omarchy (`cliphist list | walker --dmenu | ...`).
+- **Restore last** — skips the picker and immediately restores the most recently minimized window.
+- **Restore all** — brings every minimized window back at once.
 
+---
 
-## 🛠️ Dependencies
+## Dependencies
 
-- hyprland (your vessel through the desktop seas)
-- eww (optional, but required for the restore menu interface)
-- waybar (optional, but recommended for keeping track of your veiled windows)
+| Dependency | Notes |
+|---|---|
+| **Hyprland** | Required — `hyprctl` must be in `$PATH` |
+| **Walker** | Required — already present in Omarchy |
+| **Rust / Cargo** | Build-time only |
+
+---
 
 ## Installation
 
-### 1. Building from source
-
 ```bash
-# Clone the repository
-git clone https://github.com/Mauitron/NiflVeil.git
-cd NiflVeil/niflveil
-
-# Build using cargo
+cd omaveil
 cargo build --release
-
-# Copy the binary to your path
-sudo cp target/release/niflveil /usr/local/bin/
+cp target/release/omaveil ~/.local/bin/
 ```
 
-### 2. Add the bindings you want to your Hyprland config:
+Or install system-wide (requires sudo):
 
 ```bash
-# Suggested NiflVeil bindings
-
-# Minimize current window and updates the interface
-bind = $mainMod, M, exec, /usr/local/bin/niflveil minimize
-
-
-# Opens the EWW interface              
-bind = $mainMod, I, exec, /usr/local/bin/niflveil restore
-
-# Restore the last minimized window
-bind = SUPER, U, exec, /usr/local/bin/niflveil restore-last
-
-# Restore all minimized windows 
-bind = $mainMod SHIFT, U, exec, /usr/local/bin/niflveil restore-all
-
-# PS: If you are using the EWW window, add the following to the end
-# of the bindings: "&& eww reload --config /etc/xdg/eww/widgets/niflveil"
-
+sudo cp target/release/omaveil /usr/local/bin/
 ```
 
-### 3. (Optional) Add Waybar integration by adding this to your Waybar config:
+---
 
-```json
-{
-    "custom/niflveil": {
-        "format": "{}",
-        "exec": "niflveil show",
-        "on-click": "niflveil restore",
-        "return-type": "json",
-        "interval": "once",
-        "signal": 8
-    }
-}
+## Keybindings
+
+Add these to `~/.config/hypr/bindings.conf`:
+
+```
+# OmaVeil - window minimizer
+bindd = SUPER, H, Minimize window, exec, omaveil minimize
+bindd = SUPER, I, Browse minimized windows, exec, omaveil restore
+bindd = SUPER, U, Restore last minimized, exec, omaveil restore-last
+bindd = SUPER SHIFT, U, Restore all minimized, exec, omaveil restore-all
 ```
 
-And add this to your Waybar style.css:
+| Binding | Action |
+|---|---|
+| `Super + H` | Hide (minimize) focused window |
+| `Super + I` | Open Walker picker to restore a specific window |
+| `Super + U` | Restore the most recently hidden window |
+| `Super + Shift + U` | Restore all hidden windows |
 
-```css
-#custom-niflveil {
-    padding: 0 10px;
-    color: #88c0d0;
-}
+---
 
-#custom-niflveil.empty {
-    color: #4c566a;
-}
+## CLI reference
+
 ```
-
-## Usage
-
-- Press Super + M to minimize the current window
-- Press Super + I to show the restore menu via EWW
-- Press Super + U to restore the most recently minimized window
-- Press Super + Shift + U to restore all minimized windows
-
-- Click the Waybar module (if configured) to show minimized windows
-
-## Command Line Interface
-
-```bash
-niflveil [COMMAND] [WINDOW_ID]
+omaveil <command> [window_address]
 
 Commands:
-  minimize              Minimize the active window
-  restore [window_id]   Restore a specific window or show restore menu
-  restore-all           Restore all minimized windows
-  restore-last          Restore the most recently minimized window
-  show                  Display status for waybar integration
+  minimize       Hide the focused window into special:minimum
+  restore        Open Walker dmenu picker to restore a window
+  restore [addr] Restore a specific window by address
+  restore-last   Restore the most recently minimized window
+  restore-all    Restore all minimized windows
+  show           Print Waybar-compatible JSON status
 ```
 
-## Why Trust Your Windows to a Lost Ferryman?
+### Optional: Waybar module
 
-Look, I might have taken a wrong turn at the River Styx and ended up in Niflheim, but I know a thing or two about managing lost things. Whether they're souls or windows, the principle is the same - keep track of them and make sure they can find their way back home!
+The `show` command outputs a Waybar-compatible JSON string. If you want a status indicator in your bar, add this to `~/.config/waybar/config.jsonc`:
 
-## 🍺 Support the Development
+```jsonc
+"custom/omaveil": {
+    "format": "{}",
+    "exec": "omaveil show",
+    "on-click": "omaveil restore",
+    "return-type": "json",
+    "interval": "once",
+    "signal": 9
+}
+```
 
-If you find this tool useful, consider buying me some mead! I could use it in these cold Norse realms. Also, the heating bill in Niflheim is astronomical.
+> Note: Omarchy's default Waybar config already uses signal 8 for the screen recording indicator. Use signal 9 (or higher) for OmaVeil to avoid conflicts.
 
-## 🌟 Acknowledgments
+---
 
-- The Hyprland community for not pointing out that I'm clearly lost
-- Nordic theme creators for making me feel more at home in these cold lands
-- That absolute tit Ratatoskr who gave me directions! (I should have known better)
+## State
 
-P.S. No refunds, exchanges, or soul-backsies. The exchange rate between Obols and Norse currency is terrible anyway.
+Window state is persisted at `/tmp/minimize-state/windows.json` for the lifetime of the session. It is cleared on reboot (lives in `/tmp`).
 
-P.P.S. If you see a confused-looking boat anywhere in the world tree, please let me know. I'm starting to... yearn for it.
+## Debugging
 
+Only errors are logged (successful operations are silent). Error entries are timestamped and written to:
 
+```
+/tmp/omaveil.log
+```
 
+If a window isn't restoring, check the log immediately after the failed action:
 
+```bash
+cat /tmp/omaveil.log
+```
 
- 
+The log includes the failing `hyprctl` command along with stdout/stderr to show exactly what Hyprland rejected and why. The log is also cleared on reboot.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).  
+Original work Copyright © 2024 Maui The Magnificent (Charon).

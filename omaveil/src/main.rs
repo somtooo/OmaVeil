@@ -1,33 +1,54 @@
 /*
- * NiflVeil - A window minimizer for Hyprland
- * Copyright (C) 2024 Maui The Magnificent (Charon)
- * Contact: Maui_The_Magnificent@proton.me
- * Project repository: https://github.com/Mauitron/NiflVeil.git
+ * OmaVeil - An Omarchy-native window minimizer for Hyprland
+ *
+ * Forked from NiflVeil (https://github.com/somtooo/NiflVeil)
+ * Original work Copyright (C) 2024 Maui The Magnificent (Charon)
+ * Original contact: Maui_The_Magnificent@proton.me
+ *
+ * Thanks to Charon for the original concept and clean implementation.
+ * This fork replaces the EWW widget picker with Walker's dmenu mode,
+ * making it a natural fit for Omarchy setups where Walker is already present.
 */
-
 
 use std::{
     collections::HashMap,
     env,
-    fs::{self},
-    io::{self},
+    fs::{self, OpenOptions},
+    io::{self, Write},
     path::Path,
-    process::Command,
+    process::{Command, Stdio},
 };
 
 const CACHE_DIR: &str = "/tmp/minimize-state";
 const CACHE_FILE: &str = "/tmp/minimize-state/windows.json";
 const PREVIEW_DIR: &str = "/tmp/window-previews";
-const ICONS: &[(&str, &str)] = &[
+const LOG_FILE: &str = "/tmp/omaveil.log";
+const ICONS: [(&str, &str); 10] = [
     ("firefox", ""),
-    ("Alacritty", ""),
+    ("alacritty", ""),
     ("discord", "󰙯"),
-    ("Steam", ""),
+    ("steam", ""),
     ("chromium", ""),
     ("code", "󰨞"),
     ("spotify", ""),
+    ("ghostty", ""),
+    ("kitty", ""),
     ("default", "󰖲"),
 ];
+
+// Append a timestamped error line to /tmp/omaveil.log
+fn log_error(msg: &str) {
+    let timestamp = Command::new("date")
+        .arg("+%Y-%m-%d %H:%M:%S")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .unwrap_or_else(|| "?".to_string());
+    let timestamp = timestamp.trim();
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(LOG_FILE) {
+        let _ = writeln!(file, "[{}] ERROR: {}", timestamp, msg);
+    }
+}
 
 #[derive(Clone)]
 struct MinimizedWindow {
@@ -40,9 +61,10 @@ struct MinimizedWindow {
 }
 
 fn get_app_icon(class_name: &str) -> String {
+    let lower = class_name.to_lowercase();
     ICONS
         .iter()
-        .find(|(name, _)| class_name.to_lowercase().contains(&name.to_lowercase()))
+        .find(|(name, _)| lower.contains(*name))
         .map(|(_, icon)| *icon)
         .unwrap_or(ICONS.last().unwrap().1)
         .to_string()
@@ -83,9 +105,9 @@ fn create_json_output(windows: &[MinimizedWindow]) -> String {
         output.push_str(&format!(
             "{{\"address\":\"{}\",\"display_title\":\"{}\",\"class\":\"{}\",\"original_title\":\"{}\",\"preview\":\"{}\",\"icon\":\"{}\"}}",
             window.address,
-            window.display_title.replace("\"", "\\\""),
+            window.display_title.replace('"', "\\\""),
             window.class,
-            window.original_title.replace("\"", "\\\""),
+            window.original_title.replace('"', "\\\""),
             window.preview_path.as_ref().unwrap_or(&String::new()),
             window.icon
         ));
@@ -95,7 +117,7 @@ fn create_json_output(windows: &[MinimizedWindow]) -> String {
 }
 
 fn parse_window_info(info: &str) -> io::Result<HashMap<String, String>> {
-    let mut result = std::collections::HashMap::new();
+    let mut result = HashMap::new();
     let content = info.trim_matches(|c| c == '{' || c == '}');
 
     for pair in content.split(',') {
@@ -137,44 +159,53 @@ fn parse_windows_from_json(content: &str) -> io::Result<Vec<MinimizedWindow>> {
 }
 
 fn restore_specific_window(window_id: &str) -> io::Result<()> {
-    println!("Attempting to restore window: {}", window_id);
-
     let output = Command::new("hyprctl")
         .args(["activeworkspace", "-j"])
         .output()?;
 
     if !output.status.success() {
-        println!("Failed to get active workspace");
+        log_error(&format!(
+            "restore: hyprctl activeworkspace failed for address={} — {}",
+            window_id,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
         return Ok(());
     }
 
     let workspace_info =
         String::from_utf8(output.stdout).expect("cannot get workspace_info from stdout");
-    println!("Workspace info: {}", workspace_info);
     let workspace_data = parse_window_info(&workspace_info)?;
     let current_ws = workspace_data
         .get("id")
         .and_then(|id| id.parse().ok())
         .unwrap_or(1);
 
-    let move_from_special = Command::new("hyprctl")
-        .args([
-            "dispatch",
-            "movetoworkspace",
-            &format!("{},address:{}", current_ws, window_id),
-        ])
+    let move_cmd = format!("{},address:{}", current_ws, window_id);
+    let move_result = Command::new("hyprctl")
+        .args(["dispatch", "movetoworkspace", &move_cmd])
         .output()?;
 
-    println!(
-        "Move from special workspace result: {:?}",
-        move_from_special
-    );
+    if !move_result.status.success() {
+        log_error(&format!(
+            "restore: movetoworkspace failed for address={} — stdout={} stderr={}",
+            window_id,
+            String::from_utf8_lossy(&move_result.stdout).trim(),
+            String::from_utf8_lossy(&move_result.stderr).trim()
+        ));
+    }
 
-    let focus_cmd = Command::new("hyprctl")
+    let focus_result = Command::new("hyprctl")
         .args(["dispatch", "focuswindow", &format!("address:{}", window_id)])
         .output()?;
 
-    println!("Focus command result: {:?}", focus_cmd);
+    if !focus_result.status.success() {
+        log_error(&format!(
+            "restore: focuswindow failed for address={} — stdout={} stderr={}",
+            window_id,
+            String::from_utf8_lossy(&focus_result.stdout).trim(),
+            String::from_utf8_lossy(&focus_result.stderr).trim()
+        ));
+    }
 
     let content = fs::read_to_string(CACHE_FILE)?;
     let windows = parse_windows_from_json(&content)?;
@@ -183,7 +214,6 @@ fn restore_specific_window(window_id: &str) -> io::Result<()> {
         .filter(|w| w.address != window_id)
         .collect();
     fs::write(CACHE_FILE, create_json_output(&updated_windows))?;
-    signal_waybar();
 
     Ok(())
 }
@@ -199,58 +229,87 @@ fn restore_all_windows() -> io::Result<()> {
     Ok(())
 }
 
+/// Opens a Walker dmenu picker listing all minimized windows.
+/// Uses index mode (-i) so we get back the 0-based position of the selection,
+/// avoiding any text-mangling issues (e.g. walker stripping leading icon chars).
 fn show_restore_menu() -> io::Result<()> {
-    println!("Starting restore menu...");
-
     if !Path::new(CACHE_FILE).exists() {
-        println!("Cache file does not exist");
         return Ok(());
     }
 
     let content = fs::read_to_string(CACHE_FILE)?;
-    println!("Read cache file content: {}", content);
-
     let windows = parse_windows_from_json(&content)?;
-    println!("Parsed {} windows", windows.len());
 
     if windows.is_empty() {
-        println!("No minimized windows");
         return Ok(());
     }
 
-    let eww_result = Command::new("eww")
-        .args([
-            "--config",
-            "/etc/xdg/eww/widgets/niflveil/",
-            "open",
-            "niflveil",
-        ])
-        .output()?;
+    let input = windows
+        .iter()
+        .map(|w| {
+            format!(
+                "{} - {} [{}]",
+                w.class,
+                w.original_title,
+                &w.address.chars().rev().take(4).collect::<String>()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    if !eww_result.status.success() {
-        println!(
-            "Eww command failed: {}",
-            String::from_utf8_lossy(&eww_result.stderr)
-        );
-    } else {
-        println!("Eww window opened successfully");
+    let mut child = Command::new("walker")
+        .args(["-d", "-i", "-p", "Restore window:"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            log_error(&format!("restore: failed to spawn walker — {}", e));
+            e
+        })?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(input.as_bytes()).map_err(|e| {
+            log_error(&format!("restore: failed to write to walker stdin — {}", e));
+            e
+        })?;
     }
 
-    Command::new("eww")
-        .args([
-            "--config",
-            "/etc/xdg/eww/widgets/niflveil/",
-            "close",
-            "niflveil",
-        ])
-        .output()?;
+    let output = child.wait_with_output().map_err(|e| {
+        log_error(&format!("restore: walker wait_with_output failed — {}", e));
+        e
+    })?;
+
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    if raw.is_empty() {
+        return Ok(());
+    }
+
+    match raw.parse::<usize>() {
+        Ok(idx) if idx < windows.len() => {
+            restore_specific_window(&windows[idx].address)?;
+        }
+        Ok(idx) => {
+            log_error(&format!(
+                "restore: walker returned index {} but only {} windows are minimized",
+                idx,
+                windows.len()
+            ));
+        }
+        Err(e) => {
+            log_error(&format!(
+                "restore: could not parse walker output {:?} as index — {}",
+                raw, e
+            ));
+        }
+    }
 
     Ok(())
 }
 
 fn restore_window(window_id: Option<&str>) -> Result<(), io::Error> {
     match window_id {
-        Some(id) => restore_specific_window(&id),
+        Some(id) => restore_specific_window(id),
         None => show_restore_menu(),
     }
 }
@@ -261,6 +320,10 @@ fn minimize_window() -> Result<(), io::Error> {
         .output()?;
 
     if !output.status.success() {
+        log_error(&format!(
+            "minimize: hyprctl activewindow failed — {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
         return Ok(());
     }
 
@@ -268,7 +331,11 @@ fn minimize_window() -> Result<(), io::Error> {
         String::from_utf8(output.stdout).expect("can't get window_info from output, stdout");
     let window_data = parse_window_info(&window_info)?;
 
-    if window_data.get("class").map_or(false, |c| c == "wofi") {
+    // Don't minimize walker itself (it's the picker UI)
+    if window_data
+        .get("class")
+        .map_or(false, |c| c.to_lowercase() == "walker")
+    {
         return Ok(());
     }
 
@@ -308,12 +375,9 @@ fn minimize_window() -> Result<(), io::Error> {
         icon,
     };
 
+    let dispatch_arg = format!("special:minimum,address:{}", window_addr);
     let output = Command::new("hyprctl")
-        .args([
-            "dispatch",
-            "movetoworkspacesilent",
-            &format!("special:minimum,address:{}", window_addr),
-        ])
+        .args(["dispatch", "movetoworkspacesilent", &dispatch_arg])
         .output()?;
 
     if output.status.success() {
@@ -321,13 +385,24 @@ fn minimize_window() -> Result<(), io::Error> {
         let mut windows = parse_windows_from_json(&content)?;
         windows.push(window);
         fs::write(CACHE_FILE, create_json_output(&windows))?;
-        signal_waybar();
+    } else {
+        log_error(&format!(
+            "minimize: movetoworkspacesilent failed for class={} address={} — stdout={} stderr={}",
+            class_name,
+            window_addr,
+            String::from_utf8_lossy(&output.stdout).trim(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
     }
 
     Ok(())
 }
 
 fn show_status() -> io::Result<()> {
+    if !Path::new(CACHE_FILE).exists() {
+        println!("{{\"text\":\"󰘸\",\"class\":\"empty\",\"tooltip\":\"No minimized windows\"}}");
+        return Ok(());
+    }
     let content = fs::read_to_string(CACHE_FILE)?;
     let windows = parse_windows_from_json(&content)?;
     let count = windows.len();
@@ -370,7 +445,7 @@ fn main() -> io::Result<()> {
             if let Ok(content) = fs::read_to_string(CACHE_FILE) {
                 if let Ok(windows) = parse_windows_from_json(&content) {
                     if let Some(window) = windows.last() {
-                        restore_window(Some(&window.address))?;
+                        restore_window(Some(&window.address.clone()))?;
                     }
                 }
             }
@@ -379,16 +454,20 @@ fn main() -> io::Result<()> {
             show_status()?;
         }
         _ => {
-            println!("Unknown command: {}", command);
-            println!("Usage: niflveil  [window_id]");
+            eprintln!("OmaVeil - Omarchy-native window minimizer for Hyprland");
+            eprintln!();
+            eprintln!("Usage: omaveil <command> [window_address]");
+            eprintln!();
+            eprintln!("Commands:");
+            eprintln!("  minimize       Hide the focused window into special:minimum");
+            eprintln!("  restore        Open Walker dmenu picker to restore a window");
+            eprintln!("  restore [addr] Restore a specific window by address");
+            eprintln!("  restore-last   Restore the most recently minimized window");
+            eprintln!("  restore-all    Restore all minimized windows");
+            eprintln!("  show           Print Waybar-compatible JSON status");
+            eprintln!();
+            eprintln!("Errors: {}", LOG_FILE);
         }
     }
     Ok(())
-}
-
-fn signal_waybar() {
-    Command::new("pkill")
-        .args(["-RTMIN+8", "waybar"])
-        .output()
-        .ok();
 }

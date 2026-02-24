@@ -1,9 +1,9 @@
 [package]
-name = "niflveil"
+name = "omaveil"
 version = "0.1.0"
 edition = "2021"
-authors = ["Maui_The_Magnificent"]
-description = "A window minimizer for Hyprland"
+authors = ["somtooo"]
+description = "An Omarchy-native window minimizer for Hyprland, using Walker as the restore picker"
 
 [dependencies]
 
