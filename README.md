@@ -30,17 +30,23 @@ Uses [Walker](https://walkerlauncher.com) as the restore picker, the same launch
 
 ## Installation
 
+### Download (recommended)
+
+Grab the latest binary from GitHub Releases and place it in a system PATH directory Hyprland can see:
+
+```
+/usr/local/bin/omaveil
+```
+
+### Build from source
+
 ```bash
 cd omaveil
 cargo build --release
-cp target/release/omaveil ~/.local/bin/
-```
-
-Or install system-wide (requires sudo):
-
-```bash
 sudo cp target/release/omaveil /usr/local/bin/
 ```
+
+> Tested only on Omarchy.
 
 ---
 
